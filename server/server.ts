@@ -28,18 +28,22 @@ app.prepare().then(() => {
     // Set up interval for periodic updates
     const interval = setInterval(() => {
       sendUpdate(socket);
-    }, 2000);
+    }, 10000);
 
-    socket.on('message', async (message) => {
-      try {
-        const data = JSON.parse(message.toString());
-        if (data.type === 'request_update') {
-          await sendUpdate(socket);
-        }
-      } catch (error) {
-        console.error('Error handling message:', error);
-      }
-    });
+  socket.on('message', async (message) => {
+  try {
+    const data = JSON.parse(message.toString());
+
+    if (data.type === 'request_update') {
+      // Use client-sent limit if available
+      const limit = data.limit ? parseInt(data.limit) : 100;
+      await sendUpdate(socket, limit);
+    }
+  } catch (error) {
+    console.error('Error handling message:', error);
+  }
+});
+
 
     socket.on('close', () => {
       console.log('✗ Client disconnected');
@@ -52,31 +56,33 @@ app.prepare().then(() => {
     });
   });
 
-  async function sendUpdate(socket: WebSocket) {
-    try {
-      const [stats, recentScans, opportunities] = await Promise.all([
-        getDashboardStats(24),
-        getRecentScans(10),
-        getRecentOpportunities(10),
-      ]);
+  
+  async function sendUpdate(socket: WebSocket, limit: number = 100) {
+  try {
+    const [stats, recentScans, opportunities] = await Promise.all([
+      getDashboardStats(24),
+      getRecentScans(limit),
+      getRecentOpportunities(limit),
+    ]);
 
-      const message = {
-        type: 'update',
-        timestamp: new Date().toISOString(),
-        data: {
-          stats,
-          recentScans,
-          opportunities,
-        },
-      };
+    const message = {
+      type: 'update',
+      timestamp: new Date().toISOString(),
+      data: {
+        stats,
+        recentScans,
+        opportunities,
+      },
+    };
 
-      if (socket.readyState === 1) { // 1 = OPEN
-        socket.send(JSON.stringify(message));
-      }
-    } catch (error) {
-      console.error('Error sending update:', error);
+    if (socket.readyState === 1) {
+      socket.send(JSON.stringify(message));
     }
+  } catch (error) {
+    console.error('Error sending update:', error);
   }
+}
+
 
   const PORT = process.env.PORT || 3000;
   server.listen(PORT, (err?: Error) => {

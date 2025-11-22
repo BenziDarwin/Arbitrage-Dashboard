@@ -17,69 +17,76 @@ export default function Dashboard() {
   const [isConnected, setIsConnected] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
   const [hourlyStats, setHourlyStats] = useState<any[]>([]);
+  const [scanLimit, setScanLimit] = useState(1000);
   
   // WebSocket connection
-  useEffect(() => {
-    let ws: WebSocket | null = null;
-    let reconnectTimeout: NodeJS.Timeout;
-    
-    const connect = () => {
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}/api/ws`;
-      
-      console.log('Connecting to WebSocket:', wsUrl);
-      ws = new WebSocket(wsUrl);
-      
-      ws.onopen = () => {
-        console.log('✓ WebSocket connected');
-        setIsConnected(true);
-      };
-      
-      ws.onmessage = (event) => {
-        try {
-          const message = JSON.parse(event.data);
-          
-          console.log("=== WebSocket Message Received ===");
-          console.log("Message Type:", message.type);
-          console.log("Data:", message.data);
-          
-          if (message.type === 'update') {
-            setData(message.data);
-            setLastUpdate(new Date(message.timestamp));
-          }
-        } catch (error) {
-          console.error('Error parsing message:', error);
+ // WebSocket connection
+useEffect(() => {
+  let ws: WebSocket | null = null;
+  let reconnectTimeout: NodeJS.Timeout;
+
+  const connect = () => {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/api/ws`;
+
+    console.log('Connecting to WebSocket:', wsUrl);
+    ws = new WebSocket(wsUrl);
+
+    ws.onopen = () => {
+      console.log('✓ WebSocket connected');
+      setIsConnected(true);
+
+      // Request update with current scan limit
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'request_update',
+          limit: scanLimit // assume scanLimit is a state variable
+        }));
+      }
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data);
+
+        console.log("=== WebSocket Message Received ===");
+        console.log("Message Type:", message.type);
+        console.log("Data:", message.data);
+
+        if (message.type === 'update') {
+          setData(message.data);
+          setLastUpdate(new Date(message.timestamp));
         }
-      };
-      
-      ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        setIsConnected(false);
-      };
-      
-      ws.onclose = () => {
-        console.log('✗ WebSocket disconnected');
-        setIsConnected(false);
-        
-        // Attempt to reconnect after 3 seconds
-        reconnectTimeout = setTimeout(() => {
-          console.log('Attempting to reconnect...');
-          connect();
-        }, 3000);
-      };
-    };
-    
-    connect();
-    
-    return () => {
-      if (reconnectTimeout) {
-        clearTimeout(reconnectTimeout);
-      }
-      if (ws) {
-        ws.close();
+      } catch (error) {
+        console.error('Error parsing message:', error);
       }
     };
-  }, []);
+
+    ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+      setIsConnected(false);
+    };
+
+    ws.onclose = () => {
+      console.log('✗ WebSocket disconnected');
+      setIsConnected(false);
+
+      // Attempt to reconnect after 3 seconds
+      reconnectTimeout = setTimeout(() => {
+        console.log('Attempting to reconnect...');
+        connect();
+      }, 3000);
+    };
+  };
+
+  connect();
+
+  return () => {
+    if (reconnectTimeout) clearTimeout(reconnectTimeout);
+    if (ws) ws.close();
+  };
+}, [scanLimit]); // <-- add scanLimit as dependency to resend request when it changes
+
   
   // Fetch hourly stats
   useEffect(() => {
