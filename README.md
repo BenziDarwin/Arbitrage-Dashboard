@@ -9,18 +9,21 @@ A real-time Next.js dashboard for monitoring BSC arbitrage opportunities between
 ## ✨ Features
 
 ### Real-Time Monitoring
+
 - 🔴 **Live WebSocket Connection** - Updates every 2 seconds
 - 📊 **Live Price Display** - Current prices from PancakeSwap & BiSwap
 - 📈 **Spread Tracking** - Real-time spread percentage with profit indicators
 - ⚡ **Instant Notifications** - Visual alerts when profitable opportunities appear
 
 ### Comprehensive Statistics
+
 - 📅 **Days Running** - Total uptime and scan count
 - 🎯 **Opportunity Tracking** - All profitable arbitrage opportunities logged
 - 💰 **Profit Analysis** - Total potential profit, daily averages, best opportunities
 - 📊 **Spread Distribution** - Visualize spread patterns over time
 
 ### Data Visualization
+
 - 📉 **Hourly Charts** - Interactive charts showing spread trends
 - 📊 **Opportunity Table** - Detailed list of recent arbitrage opportunities
 - 🎨 **Color-Coded Stats** - Easy-to-read color-coded metrics
@@ -29,8 +32,9 @@ A real-time Next.js dashboard for monitoring BSC arbitrage opportunities between
 ## 🚀 Quick Start
 
 ### Prerequisites
+
 ```bash
-- Node.js 18+ 
+- Node.js 18+
 - PostgreSQL 12+
 - Python 3.8+ (for the bot)
 ```
@@ -49,6 +53,7 @@ cp .env.example .env
 ```
 
 Edit `.env`:
+
 ```env
 DB_HOST=localhost
 DB_PORT=5432
@@ -87,6 +92,7 @@ Visit http://localhost:3000
 ## 📊 Dashboard Sections
 
 ### 1. Header Stats
+
 ```
 ┌─────────────────────────────────────────────────────────┐
 │ 📅 Days Running  │ 🎯 Opportunities │ 💰 Total Potential │
@@ -95,6 +101,7 @@ Visit http://localhost:3000
 ```
 
 ### 2. Live Price Display
+
 - Current PancakeSwap price
 - Current BiSwap price
 - Real-time spread percentage
@@ -102,12 +109,14 @@ Visit http://localhost:3000
 - Live/disconnected status
 
 ### 3. Spread Chart
+
 - 24-hour spread history
 - Average and maximum spreads
 - Profitable threshold line (0.5%)
 - Hourly data points
 
 ### 4. Opportunities Table
+
 - Time discovered
 - Buy/Sell strategy
 - Spread percentage
@@ -115,6 +124,7 @@ Visit http://localhost:3000
 - ROI percentage
 
 ### 5. Additional Metrics
+
 - Average spread
 - Price change frequency
 - Maximum spread achieved
@@ -125,7 +135,7 @@ Visit http://localhost:3000
 
 ### WebSocket Connection
 
-The dashboard automatically connects to WebSocket at `/api/ws`. 
+The dashboard automatically connects to WebSocket at `/api/ws`.
 
 To customize update frequency, edit `pages/api/ws.ts`:
 
@@ -153,12 +163,13 @@ Default is 24 hours. To change, modify API calls:
 
 ```typescript
 // In pages/index.tsx
-const response = await fetch('/api/stats?hours=48'); // 48 hours
+const response = await fetch("/api/stats?hours=48"); // 48 hours
 ```
 
 ## 📱 Mobile Responsive
 
 The dashboard is fully responsive:
+
 - **Desktop**: 4-column grid layout
 - **Tablet**: 2-column grid layout
 - **Mobile**: Single column, optimized for touch
@@ -192,12 +203,15 @@ Edit `components/SpreadChart.tsx`:
 ## 🔍 API Endpoints
 
 ### GET /api/stats
+
 Returns dashboard statistics
 
 **Query Parameters:**
+
 - `hours` (optional): Time range in hours (default: 24)
 
 **Response:**
+
 ```json
 {
   "stats": {
@@ -213,9 +227,11 @@ Returns dashboard statistics
 ```
 
 ### WebSocket /api/ws
+
 Real-time data stream
 
 **Message Format:**
+
 ```json
 {
   "type": "update",
@@ -262,7 +278,7 @@ SELECT COUNT(*) FROM arbitrage_opportunities;
 1. Check database performance:
 
 ```sql
-EXPLAIN ANALYZE SELECT * FROM price_scans 
+EXPLAIN ANALYZE SELECT * FROM price_scans
 ORDER BY scan_timestamp DESC LIMIT 10;
 ```
 

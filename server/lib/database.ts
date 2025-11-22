@@ -1,12 +1,12 @@
 // lib/database.ts
-import { Pool } from 'pg';
+import { Pool } from "pg";
 
 const pool = new Pool({
-  host: process.env.DB_HOST || '84.247.167.128',
-  port: parseInt(process.env.DB_PORT || '5432'),
-  database: process.env.DB_NAME || 'bsc_arbitrage_db',
-  user: process.env.DB_USER || 'main_user',
-  password: process.env.DB_PASSWORD || 'password=1',
+  host: process.env.DB_HOST || "84.247.167.128",
+  port: parseInt(process.env.DB_PORT || "5432"),
+  database: process.env.DB_NAME || "bsc_arbitrage_db",
+  user: process.env.DB_USER || "main_user",
+  password: process.env.DB_PASSWORD || "password=1",
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000,
@@ -65,9 +65,11 @@ export interface DashboardStats {
   currentSession: BotSession | null;
 }
 
-export async function getDashboardStats(hours: number = 24): Promise<DashboardStats> {
+export async function getDashboardStats(
+  hours: number = 24,
+): Promise<DashboardStats> {
   const client = await pool.connect();
-  
+
   try {
     // Get scan stats
     const scanStats = await client.query(`
@@ -80,7 +82,7 @@ export async function getDashboardStats(hours: number = 24): Promise<DashboardSt
       FROM price_scans
       WHERE scan_timestamp >= NOW() - INTERVAL '${hours} hours';
     `);
-    
+
     // Get opportunity stats
     const oppStats = await client.query(`
       SELECT 
@@ -91,7 +93,7 @@ export async function getDashboardStats(hours: number = 24): Promise<DashboardSt
       FROM arbitrage_opportunities
       WHERE opportunity_timestamp >= NOW() - INTERVAL '${hours} hours';
     `);
-    
+
     // Get current session
     const sessionResult = await client.query(`
       SELECT * FROM bot_sessions
@@ -99,19 +101,19 @@ export async function getDashboardStats(hours: number = 24): Promise<DashboardSt
       ORDER BY session_start DESC
       LIMIT 1;
     `);
-    
+
     // Calculate days running
     const daysResult = await client.query(`
       SELECT 
         EXTRACT(DAY FROM (NOW() - MIN(scan_timestamp))) as days_running
       FROM price_scans;
     `);
-    
+
     const scan = scanStats.rows[0];
     const opp = oppStats.rows[0];
     const session = sessionResult.rows[0] || null;
-    const days = parseFloat(daysResult.rows[0]?.days_running || '0');
-    
+    const days = parseFloat(daysResult.rows[0]?.days_running || "0");
+
     return {
       totalScans: parseInt(scan.total_scans) || 0,
       priceChanges: parseInt(scan.price_changes) || 0,
@@ -130,32 +132,42 @@ export async function getDashboardStats(hours: number = 24): Promise<DashboardSt
   }
 }
 
-export async function getRecentScans(limit: number = 100): Promise<PriceScan[]> {
+export async function getRecentScans(
+  limit: number = 100,
+): Promise<PriceScan[]> {
   const client = await pool.connect();
-  
+
   try {
-    const result = await client.query(`
+    const result = await client.query(
+      `
       SELECT * FROM price_scans
       ORDER BY scan_timestamp DESC
       LIMIT $1;
-    `, [limit]);
-    
+    `,
+      [limit],
+    );
+
     return result.rows;
   } finally {
     client.release();
   }
 }
 
-export async function getRecentOpportunities(limit: number = 50): Promise<ArbitrageOpportunity[]> {
+export async function getRecentOpportunities(
+  limit: number = 50,
+): Promise<ArbitrageOpportunity[]> {
   const client = await pool.connect();
-  
+
   try {
-    const result = await client.query(`
+    const result = await client.query(
+      `
       SELECT * FROM arbitrage_opportunities
       ORDER BY opportunity_timestamp DESC
       LIMIT $1;
-    `, [limit]);
-    
+    `,
+      [limit],
+    );
+
     return result.rows;
   } finally {
     client.release();
@@ -164,7 +176,7 @@ export async function getRecentOpportunities(limit: number = 50): Promise<Arbitr
 
 export async function getHourlyStats(hours: number = 24) {
   const client = await pool.connect();
-  
+
   try {
     const result = await client.query(`
       SELECT 
@@ -178,8 +190,8 @@ export async function getHourlyStats(hours: number = 24) {
       GROUP BY hour
       ORDER BY hour ASC;
     `);
-    
-    return result.rows.map(row => ({
+
+    return result.rows.map((row) => ({
       hour: row.hour,
       scans: parseInt(row.scans),
       avgSpread: parseFloat(row.avg_spread),
@@ -193,7 +205,7 @@ export async function getHourlyStats(hours: number = 24) {
 
 export async function getSpreadDistribution(hours: number = 24) {
   const client = await pool.connect();
-  
+
   try {
     const result = await client.query(`
       SELECT 
@@ -219,8 +231,8 @@ export async function getSpreadDistribution(hours: number = 24) {
       GROUP BY spread_range
       ORDER BY spread_range;
     `);
-    
-    return result.rows.map(row => ({
+
+    return result.rows.map((row) => ({
       range: row.spread_range,
       count: parseInt(row.count),
       percentage: parseFloat(row.percentage),
