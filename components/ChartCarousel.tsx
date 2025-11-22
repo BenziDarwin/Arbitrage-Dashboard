@@ -194,7 +194,7 @@ const ChartCarousel: React.FC<ChartCarouselProps> = ({
               dataKey="profit"
               stroke="#8b5cf6"
               strokeWidth={2}
-              dot={{ fill: "#8b5cf6", r: 3 }}
+              dot={false}
               name="Profit"
             />
           </LineChart>
