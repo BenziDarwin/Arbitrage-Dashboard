@@ -319,7 +319,7 @@ useEffect(() => {
                 Last updated: <span className="text-white font-medium">{lastUpdate.toLocaleString()}</span>
               </p>
               <p className="text-sm text-gray-500">
-                Updates every 2 seconds • Real-time monitoring
+                Updates every 10 seconds • Real-time monitoring
               </p>
             </div>
           </div>
