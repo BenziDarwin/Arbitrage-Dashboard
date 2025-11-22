@@ -1,7 +1,7 @@
-// pages/index.tsx
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import Head from 'next/head';
 import StatCard from '../components/StatCard';
+import SessionTimer from '../components/SessionTimer';
 import LivePriceDisplay from '../components/LivePriceDisplay';
 import ChartCarousel from '../components/ChartCarousel';
 import OpportunitiesTable from '../components/OpportunitiesTable';
@@ -12,213 +12,276 @@ interface DashboardData {
   opportunities: any[];
 }
 
+const LIMIT_OPTIONS = [
+  { label: '100', value: 100 },
+  { label: '500', value: 500 },
+  { label: '1K', value: 1000 },
+  { label: '5K', value: 5000 },
+  { label: '10K', value: 10000 },
+  { label: 'All', value: 999999999 },
+];
+
 export default function Dashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
-  const [hourlyStats, setHourlyStats] = useState<any[]>([]);
   const [scanLimit, setScanLimit] = useState(1000);
-  
-  // WebSocket connection
- // WebSocket connection
-useEffect(() => {
-  let ws: WebSocket | null = null;
-  let reconnectTimeout: NodeJS.Timeout;
+  const [customLimit, setCustomLimit] = useState('');
+  const [showCustomInput, setShowCustomInput] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
 
-  const connect = () => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/api/ws`;
-
-    console.log('Connecting to WebSocket:', wsUrl);
-    ws = new WebSocket(wsUrl);
-
-    ws.onopen = () => {
-      console.log('✓ WebSocket connected');
-      setIsConnected(true);
-
-      // Request update with current scan limit
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({
-          type: 'request_update',
-          limit: scanLimit // assume scanLimit is a state variable
-        }));
-      }
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data);
-
-        console.log("=== WebSocket Message Received ===");
-        console.log("Message Type:", message.type);
-        console.log("Data:", message.data);
-
-        if (message.type === 'update') {
-          setData(message.data);
-          setLastUpdate(new Date(message.timestamp));
-        }
-      } catch (error) {
-        console.error('Error parsing message:', error);
-      }
-    };
-
-    ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
-      setIsConnected(false);
-    };
-
-    ws.onclose = () => {
-      console.log('✗ WebSocket disconnected');
-      setIsConnected(false);
-
-      // Attempt to reconnect after 3 seconds
-      reconnectTimeout = setTimeout(() => {
-        console.log('Attempting to reconnect...');
-        connect();
-      }, 3000);
-    };
-  };
-
-  connect();
-
-  return () => {
-    if (reconnectTimeout) clearTimeout(reconnectTimeout);
-    if (ws) ws.close();
-  };
-}, [scanLimit]); // <-- add scanLimit as dependency to resend request when it changes
-
-  
-  // Fetch hourly stats
-  useEffect(() => {
-    const fetchHourlyStats = async () => {
-      try {
-        const response = await fetch('/api/stats?hours=24');
-        const result = await response.json();
-        setHourlyStats(result.hourlyStats || []);
-      } catch (error) {
-        console.error('Error fetching hourly stats:', error);
-      }
-    };
-    
-    fetchHourlyStats();
-    const interval = setInterval(fetchHourlyStats, 60000); // Update every minute
-    
-    return () => clearInterval(interval);
+  // Send request to server
+  const requestUpdate = useCallback((limit: number) => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      setIsLoading(true);
+      console.log('Sending request_update with limit:', limit);
+      wsRef.current.send(JSON.stringify({ type: 'request_update', limit }));
+    }
   }, []);
-  
+
+  // WebSocket connection
+  useEffect(() => {
+    let reconnectTimeout: NodeJS.Timeout;
+
+    const connect = () => {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}/api/ws`;
+      console.log('Connecting to:', wsUrl);
+      
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        console.log('WebSocket connected');
+        setIsConnected(true);
+        // Request with current limit on connect
+        ws.send(JSON.stringify({ type: 'request_update', limit: scanLimit }));
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          console.log('Received:', message.type, 'Scans:', message.data?.recentScans?.length);
+          
+          if (message.type === 'update') {
+            setData(message.data);
+            setLastUpdate(new Date(message.timestamp));
+            setIsLoading(false);
+          }
+        } catch (error) {
+          console.error('Error parsing message:', error);
+          setIsLoading(false);
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        setIsConnected(false);
+        setIsLoading(false);
+      };
+
+      ws.onclose = () => {
+        console.log('WebSocket closed');
+        setIsConnected(false);
+        wsRef.current = null;
+        reconnectTimeout = setTimeout(connect, 3000);
+      };
+    };
+
+    connect();
+
+    return () => {
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+    };
+  }, []); // Only run once on mount
+
+  // Handle limit change
+  const handleLimitChange = (value: number) => {
+    console.log('Limit changed to:', value);
+    setScanLimit(value);
+    setShowCustomInput(false);
+    requestUpdate(value);
+  };
+
+  const handleCustomLimitSubmit = () => {
+    const num = parseInt(customLimit);
+    if (num > 0) {
+      console.log('Custom limit:', num);
+      setScanLimit(num);
+      setShowCustomInput(false);
+      requestUpdate(num);
+      setCustomLimit('');
+    }
+  };
+
   if (!data) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center">
+      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
         <div className="text-center">
-          <div className="relative">
-            <div className="animate-spin rounded-full h-20 w-20 border-t-4 border-b-4 border-blue-500 mx-auto"></div>
-            <div className="absolute inset-0 rounded-full h-20 w-20 border-t-4 border-b-4 border-purple-500 mx-auto animate-spin" style={{ animationDirection: 'reverse', animationDuration: '1.5s' }}></div>
-          </div>
-          <p className="text-white text-xl font-semibold mt-6">Loading dashboard...</p>
-          <p className="text-gray-400 text-sm mt-2">
-            {isConnected ? '✓ Connected to WebSocket' : '⟳ Connecting...'}
+          <div className="animate-spin w-8 h-8 border-2 border-blue-500 border-t-transparent mx-auto" />
+          <p className="text-white mt-4">Loading dashboard...</p>
+          <p className="text-gray-500 text-xs mt-1">
+            {isConnected ? '✓ Connected' : 'Connecting...'}
           </p>
         </div>
       </div>
     );
   }
-  
-  const stats = data.stats;
-  const latestScan = data.recentScans[0];
-  const opportunities = data.opportunities;
-  
-  // Calculate profit ratios
-  const profitPerDay = stats.daysRunning > 0
-    ? stats.totalPotentialProfit / stats.daysRunning
-    : 0;
-  
-  const opportunityRate = stats.totalScans > 0
-    ? (stats.totalOpportunities / stats.totalScans) * 100
-    : 0;
-  
+
+  const { stats, recentScans, opportunities } = data;
+  const latestScan = recentScans[0];
+  const hitRate = stats.totalScans > 0 ? (stats.totalOpportunities / stats.totalScans) * 100 : 0;
+  const profitPerDay = stats.daysRunning > 0 ? stats.totalPotentialProfit / stats.daysRunning : 0;
+  const oppsPerDay = stats.daysRunning > 0 ? stats.totalOpportunities / stats.daysRunning : 0;
+  const scansPerHour = stats.daysRunning > 0 ? Math.floor(stats.totalScans / (stats.daysRunning * 24)) : 0;
+  const changeRate = stats.totalScans > 0 ? (stats.priceChanges / stats.totalScans) * 100 : 0;
+
   return (
     <>
       <Head>
-        <title>BSC Arbitrage Dashboard | Real-Time Analytics</title>
-        <meta name="description" content="Real-time BSC arbitrage monitoring dashboard" />
+        <title>BSC Arbitrage Dashboard</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <link rel="icon" href="/favicon.ico" />
       </Head>
-      
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
-        {/* Header with Gradient */}
-        <header className="bg-gradient-to-r from-gray-800 via-gray-900 to-gray-800 border-b border-gray-700 shadow-2xl">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
-                  BSC Arbitrage Dashboard
-                </h1>
-                <p className="text-sm text-gray-400 mt-2 flex items-center space-x-2">
-                  <span>Real-time monitoring of</span>
-                  <span className="text-yellow-400 font-semibold">PancakeSwap</span>
-                  <span>⇄</span>
-                  <span className="text-pink-400 font-semibold">BiSwap</span>
-                  <span>arbitrage</span>
-                </p>
-              </div>
-              <div className="flex items-center space-x-4">
-                {/* Connection Status */}
-                <div className={`flex items-center space-x-2 px-4 py-2 rounded-full backdrop-blur-sm ${
-                  isConnected 
-                    ? 'bg-green-500/20 border border-green-500/50' 
-                    : 'bg-red-500/20 border border-red-500/50'
-                }`}>
-                  <div className={`h-3 w-3 rounded-full ${
-                    isConnected ? 'bg-green-500 animate-pulse shadow-lg shadow-green-500/50' : 'bg-red-500'
-                  }`} />
-                  <span className="text-sm font-semibold text-white">
-                    {isConnected ? 'LIVE' : 'OFFLINE'}
-                  </span>
+
+      <div className="min-h-screen bg-gray-950 text-white text-sm">
+        {/* Header */}
+        <header className="bg-gray-900 border-b border-gray-800 px-4 py-3">
+          <div className="flex items-center justify-between max-w-7xl mx-auto">
+            <div className="flex items-center gap-3">
+              <h1 className="text-lg font-bold">BSC Arbitrage</h1>
+              <span className="text-[10px] text-gray-500">PCS ⇄ BiSwap</span>
+            </div>
+            <div className="flex items-center gap-4">
+              {/* Limit Selector */}
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-gray-500">Limit:</span>
+                <div className="flex items-center">
+                  {LIMIT_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      onClick={() => handleLimitChange(opt.value)}
+                      disabled={isLoading}
+                      className={`px-2 py-1 text-[10px] font-medium transition-colors border-r border-gray-700 last:border-r-0 ${
+                        scanLimit === opt.value && !showCustomInput
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white disabled:opacity-50'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => setShowCustomInput(!showCustomInput)}
+                    className={`px-2 py-1 text-[10px] font-medium transition-colors ${
+                      showCustomInput
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white'
+                    }`}
+                  >
+                    #
+                  </button>
                 </div>
+                {showCustomInput && (
+                  <div className="flex items-center">
+                    <input
+                      type="number"
+                      value={customLimit}
+                      onChange={(e) => setCustomLimit(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleCustomLimitSubmit()}
+                      placeholder="Number"
+                      className="w-20 px-2 py-1 text-[10px] bg-gray-800 border border-gray-700 text-white focus:outline-none focus:border-blue-500"
+                      autoFocus
+                    />
+                    <button
+                      onClick={handleCustomLimitSubmit}
+                      disabled={isLoading}
+                      className="px-2 py-1 text-[10px] bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-50"
+                    >
+                      Go
+                    </button>
+                  </div>
+                )}
+                {isLoading && (
+                  <div className="w-3 h-3 border border-blue-500 border-t-transparent animate-spin" />
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-gray-500">Session:</span>
+                <SessionTimer startTime={stats.currentSession?.session_start || null} />
+              </div>
+              
+              <div className={`flex items-center gap-1.5 px-2 py-1 ${isConnected ? 'bg-emerald-500/10 border border-emerald-500/30' : 'bg-red-500/10 border border-red-500/30'}`}>
+                <div className={`w-1.5 h-1.5 ${isConnected ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`} />
+                <span className={`text-[10px] font-medium ${isConnected ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {isConnected ? 'LIVE' : 'OFFLINE'}
+                </span>
               </div>
             </div>
           </div>
         </header>
-        
-        {/* Main Content */}
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          {/* Top Stats Row with Animation */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8 animate-fade-in">
+
+        <main className="max-w-7xl mx-auto p-4">
+          {/* Data Info Bar */}
+          <div className="flex items-center justify-between mb-4 px-1">
+            <div className="flex items-center gap-4 text-[10px] text-gray-500">
+              <span>Loaded: <span className="text-white font-medium">{recentScans.length.toLocaleString()}</span> scans</span>
+              <span>•</span>
+              <span><span className="text-white font-medium">{opportunities.length.toLocaleString()}</span> opportunities</span>
+            </div>
+            <div className="text-[10px] text-gray-600">
+              Requested: {scanLimit >= 999999999 ? 'All' : scanLimit.toLocaleString()}
+            </div>
+          </div>
+
+          {/* Top Stats Grid */}
+          <div className="grid grid-cols-6 gap-2 mb-4">
             <StatCard
-              title="Days Running"
-              value={stats.daysRunning}
-              subtitle={`${stats.totalScans.toLocaleString()} total scans`}
-              icon="📅"
+              title="Runtime"
+              value={`${stats.daysRunning}d`}
+              subtitle={`${stats.totalScans.toLocaleString()} scans`}
               color="blue"
             />
             <StatCard
-              title="Opportunities Found"
+              title="Opportunities"
               value={stats.totalOpportunities}
-              subtitle={`${opportunityRate.toFixed(3)}% of scans`}
-              icon="🎯"
+              subtitle={`${hitRate.toFixed(3)}% hit rate`}
               color="green"
-              trend={stats.totalOpportunities > 0 ? 'up' : 'neutral'}
             />
             <StatCard
-              title="Total Potential"
-              value={`$${stats.totalPotentialProfit.toFixed(2)}`}
-              subtitle={`$${profitPerDay.toFixed(2)}/day avg`}
-              icon="💰"
+              title="Total Profit"
+              value={`$${stats.totalPotentialProfit.toFixed(0)}`}
+              subtitle={`$${profitPerDay.toFixed(0)}/day`}
               color="yellow"
             />
             <StatCard
-              title="Best Opportunity"
-              value={`$${stats.maxProfit.toFixed(2)}`}
+              title="Best Trade"
+              value={`$${stats.maxProfit.toFixed(0)}`}
               subtitle={`Avg: $${stats.avgProfit.toFixed(2)}`}
-              icon="⭐"
               color="purple"
             />
+            <StatCard
+              title="Max Spread"
+              value={`${stats.maxSpread.toFixed(2)}%`}
+              subtitle={`Avg: ${stats.avgSpread.toFixed(3)}%`}
+              color="blue"
+            />
+            <StatCard
+              title="Price Changes"
+              value={stats.priceChanges.toLocaleString()}
+              subtitle={`${changeRate.toFixed(1)}% of scans`}
+              color="red"
+            />
           </div>
-          
-          {/* Live Price and Chart Carousel Row */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-            <div className="lg:col-span-1">
+
+          {/* Main Content Grid */}
+          <div className="grid grid-cols-3 gap-4 mb-4">
+            <div className="col-span-1">
               {latestScan ? (
                 <LivePriceDisplay
                   pancakeswapPrice={latestScan.pancakeswap_price}
@@ -228,120 +291,49 @@ useEffect(() => {
                   isLive={isConnected}
                 />
               ) : (
-                <div className="bg-gray-800 rounded-lg p-6 shadow-lg border border-gray-700 h-full flex items-center justify-center">
-                  <div className="text-center text-gray-400">
-                    <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mx-auto mb-4"></div>
-                    <p>Waiting for price data...</p>
-                  </div>
+                <div className="bg-gray-900 border border-gray-800 p-6 h-full flex items-center justify-center">
+                  <p className="text-gray-500 text-xs">Waiting for price data...</p>
                 </div>
               )}
             </div>
-            
-            <div className="lg:col-span-2">
-              <ChartCarousel 
-                recentScans={data.recentScans}
+            <div className="col-span-2">
+              <ChartCarousel
+                recentScans={recentScans}
                 opportunities={opportunities}
                 stats={stats}
               />
             </div>
           </div>
-          
-          {/* Quick Stats Row with Gradient Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-            <div className="bg-gradient-to-br from-blue-500/10 to-blue-600/5 border border-blue-500/20 rounded-lg p-4 backdrop-blur-sm">
-              <p className="text-xs text-blue-400 mb-1 uppercase tracking-wide">Change Rate</p>
-              <p className="text-2xl font-bold text-white">
-                {((stats.priceChanges / stats.totalScans) * 100).toFixed(1)}%
-              </p>
-            </div>
-            <div className="bg-gradient-to-br from-green-500/10 to-green-600/5 border border-green-500/20 rounded-lg p-4 backdrop-blur-sm">
-              <p className="text-xs text-green-400 mb-1 uppercase tracking-wide">Scans/Day</p>
-              <p className="text-2xl font-bold text-white">
-                {(stats.totalScans / (stats.daysRunning || 1)).toFixed(0)}
-              </p>
-            </div>
-            <div className="bg-gradient-to-br from-purple-500/10 to-purple-600/5 border border-purple-500/20 rounded-lg p-4 backdrop-blur-sm">
-              <p className="text-xs text-purple-400 mb-1 uppercase tracking-wide">Opps/Day</p>
-              <p className="text-2xl font-bold text-white">
-                {(stats.totalOpportunities / (stats.daysRunning || 1)).toFixed(1)}
-              </p>
-            </div>
-            <div className={`bg-gradient-to-br ${stats.currentSession ? 'from-green-500/10 to-green-600/5 border-green-500/20' : 'from-gray-500/10 to-gray-600/5 border-gray-500/20'} border rounded-lg p-4 backdrop-blur-sm`}>
-              <p className="text-xs text-gray-400 mb-1 uppercase tracking-wide">Bot Status</p>
-              <p className={`text-2xl font-bold ${stats.currentSession ? 'text-green-400' : 'text-gray-400'}`}>
-                {stats.currentSession ? '● Active' : '○ Idle'}
-              </p>
-            </div>
-          </div>
-          
+
           {/* Opportunities Table */}
           <OpportunitiesTable opportunities={opportunities} />
-          
+
           {/* Footer Stats */}
-          <div className="mt-8 bg-gradient-to-r from-gray-800 via-gray-900 to-gray-800 rounded-lg p-6 shadow-2xl border border-gray-700">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="text-center">
-                <p className="text-sm text-gray-400 mb-2">Average Spread</p>
-                <p className="text-3xl font-bold text-blue-400">
-                  {stats.avgSpread.toFixed(4)}%
-                </p>
-                <p className="text-xs text-gray-500 mt-1">
-                  Range: {stats.minSpread.toFixed(4)}% - {stats.maxSpread.toFixed(4)}%
-                </p>
-              </div>
-              <div className="text-center">
-                <p className="text-sm text-gray-400 mb-2">Price Changes</p>
-                <p className="text-3xl font-bold text-green-400">
-                  {stats.priceChanges.toLocaleString()}
-                </p>
-                <p className="text-xs text-gray-500 mt-1">
-                  {((stats.priceChanges / stats.totalScans) * 100).toFixed(1)}% of scans
-                </p>
-              </div>
-              <div className="text-center">
-                <p className="text-sm text-gray-400 mb-2">Max Spread</p>
-                <p className={`text-3xl font-bold ${stats.maxSpread > 0.5 ? 'text-green-400' : 'text-red-400'}`}>
-                  {stats.maxSpread.toFixed(4)}%
-                </p>
-                <p className="text-xs text-gray-500 mt-1">
-                  {stats.maxSpread > 0.5 ? '✓ Profitable!' : '✗ Below threshold'}
-                </p>
-              </div>
+          <div className="grid grid-cols-4 gap-2 mt-4">
+            <div className="bg-gray-900 border border-gray-800 p-2 text-center">
+              <p className="text-[10px] text-gray-500">Scans/Hour</p>
+              <p className="text-sm font-bold text-white">{scansPerHour.toLocaleString()}</p>
             </div>
+            <div className="bg-gray-900 border border-gray-800 p-2 text-center">
+              <p className="text-[10px] text-gray-500">Opps/Day</p>
+              <p className="text-sm font-bold text-white">{oppsPerDay.toFixed(1)}</p>
+            </div>
+            <div className="bg-gray-900 border border-gray-800 p-2 text-center">
+              <p className="text-[10px] text-gray-500">Avg Spread</p>
+              <p className="text-sm font-bold text-white">{stats.avgSpread.toFixed(4)}%</p>
+            </div>
+            <div className="bg-gray-900 border border-gray-800 p-2 text-center">
+              <p className="text-[10px] text-gray-500">Spread Range</p>
+              <p className="text-sm font-bold text-white">{stats.minSpread.toFixed(3)}% – {stats.maxSpread.toFixed(2)}%</p>
+            </div>
+          </div>
+
+          {/* Last Update Footer */}
+          <div className="mt-4 text-center text-[10px] text-gray-600">
+            Last updated: {lastUpdate.toLocaleString()} • Updates every 10s
           </div>
         </main>
-        
-        {/* Footer */}
-        <footer className="bg-gray-900/50 border-t border-gray-800 mt-12 backdrop-blur-sm">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-gray-400">
-                Last updated: <span className="text-white font-medium">{lastUpdate.toLocaleString()}</span>
-              </p>
-              <p className="text-sm text-gray-500">
-                Updates every 10 seconds • Real-time monitoring
-              </p>
-            </div>
-          </div>
-        </footer>
       </div>
-      
-      <style jsx>{`
-        @keyframes fade-in {
-          from {
-            opacity: 0;
-            transform: translateY(10px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-        
-        .animate-fade-in {
-          animation: fade-in 0.5s ease-out;
-        }
-      `}</style>
     </>
   );
 }
