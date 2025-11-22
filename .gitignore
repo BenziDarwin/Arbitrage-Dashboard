@@ -1,0 +1,14 @@
+# Node.js dependencies
+/node_modules
+/.next
+.DS_Store
+/coverage
+npm-debug.log
+yarn-error.log
+
+# IDE settings
+.idea
+.vscode
+
+# Environment variables
+.env
